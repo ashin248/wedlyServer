@@ -5,17 +5,44 @@ const session = require('express-session');
 const MongoStore = require('connect-mongo');
 const path = require('path');
 const fs = require('fs');
-const mongooseConnection = require('./DB/mongooseConnection');
-const User = require('./Schema/User');
+const mongoose = require('mongoose');
 
 const server = express();
 
-// [Existing env logging and validation remain the same]
+// Log environment variables at startup for debugging purposes
+console.log('Environment variables:');
+console.log('PORT:', process.env.PORT);
+console.log('MONGOOSE_CONNECTION:', process.env.MONGOOSE_CONNECTION);
+console.log('SESSION_SECRET:', process.env.SESSION_SECRET);
+console.log('PRODUCTION_CLIENT_URL:', process.env.PRODUCTION_CLIENT_URL);
+console.log('NODE_ENV:', process.env.NODE_ENV);
+console.log('---------------------------------');
 
-// CORS configuration
+// Validate critical environment variables
+if (!process.env.SESSION_SECRET) {
+    console.error('⚠ Error: SESSION_SECRET is not set. Please set a secure one in your environment variables.');
+    process.exit(1);
+}
+if (!process.env.MONGOOSE_CONNECTION) {
+    console.error('⚠ Error: MONGOOSE_CONNECTION is not set. Please define it in your environment variables.');
+    process.exit(1);
+}
+
+// Connect to MongoDB
+const connectDB = async () => {
+    try {
+        await mongoose.connect(process.env.MONGOOSE_CONNECTION);
+        console.log('MongoDB connected successfully');
+    } catch (error) {
+        console.error('MongoDB connection error:', error);
+        throw error;
+    }
+};
+
+// CORS configuration - Use production URL if in production, otherwise use a placeholder
 const allowedOrigins = process.env.NODE_ENV === 'production'
     ? [process.env.PRODUCTION_CLIENT_URL]
-    : [process.env.LOCALHOST_CLIENT_API_URL];
+    : ['http://localhost:5173', 'http://localhost:3000']; // Default development URLs
 server.use(cors({
     origin: allowedOrigins,
     credentials: true,
@@ -23,7 +50,11 @@ server.use(cors({
     allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
-// Session configuration
+// Middleware to parse JSON and URL-encoded data
+server.use(express.json());
+server.use(express.urlencoded({ extended: true }));
+
+// Session configuration for cross-origin cookies
 server.use(session({
     secret: process.env.SESSION_SECRET,
     resave: false,
@@ -33,38 +64,51 @@ server.use(session({
         collectionName: 'sessions'
     }),
     cookie: {
-        secure: true,
+        secure: process.env.NODE_ENV === 'production', // Use secure cookies in production (requires HTTPS)
         httpOnly: true,
-        maxAge: 24 * 60 * 60 * 1000,
-        sameSite: 'none'
+        maxAge: 24 * 60 * 60 * 1000, // 1 day
+        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax' // 'none' for cross-site requests
     }
 }));
 
-// [Existing middleware and routes remain the same]
+// Import and use API routes
+// Assumes route files are in a 'Routes' directory.
+server.use('/register', require('./Routes/register'));
+server.use('/login', require('./Routes/login'));
+server.use('/middleware', require('./Routes/middleware'));
+server.use('/user', require('./Routes/user'));
 
-// Client-side routes
+// Serve static assets from the client build directory
 const clientDist = path.join(__dirname, '../wedlyClient', 'dist');
-const clientRoutes = ['/', '/register', '/login', '/home', /* ... */];
+server.use(express.static(clientDist));
+
+// Client-side routes - serves the index.html for all client-side paths
+const clientRoutes = [
+    '/', '/register', '/login', '/home', '/information', '/update-information',
+    '/interest', '/message', '/conversation/:partnerId', '/MassageImage',
+    '/MassageVoice', '/notifications', '/admin/login', '/admin/home', '/settings',
+    '/help', '/admin/help', '/admin/reports', '/admin/blocks', '/admin/history'
+];
 server.get(clientRoutes, (req, res) => {
     const indexPath = path.join(clientDist, 'index.html');
     console.log(`Attempting to serve: ${indexPath}`);
     if (!fs.existsSync(indexPath)) {
         console.error(`Index.html not found at: ${indexPath}`);
-        return res.status(500).send('Server configuration error: Build files missing');
+        return res.status(500).send('Server configuration error: Build files are missing.');
     }
     res.sendFile(indexPath, (err) => {
         if (err) {
             console.error(`Error serving index.html: ${err.message}`);
-            res.status(500).send('Error serving the application');
+            res.status(500).send('Error serving the application.');
         }
     });
 });
 
-// Start the server
+// Start the server only after a successful database connection
 const PORT = process.env.PORT || 6969;
 async function startServer() {
     try {
-        await mongooseConnection();
+        await connectDB();
         server.listen(PORT, () => {
             console.log(`🚀 API Server listening on port 🚀 http://localhost:${PORT}`);
         });
@@ -74,6 +118,7 @@ async function startServer() {
     }
 }
 startServer();
+
 
 
 
