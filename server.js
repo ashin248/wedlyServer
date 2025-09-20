@@ -66,7 +66,7 @@ server.use(session({
     cookie: {
         secure: process.env.NODE_ENV === 'production',
         httpOnly: true,
-        maxAge: 24 * 60 * 60 * 1000,
+        maxAge: 24 * 60 * 60 * 1000, // 24 hours
         sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
     }
 }));
@@ -76,6 +76,9 @@ server.use((req, res, next) => {
     console.log(`[${new Date().toISOString()}] ${req.method} ${req.url} - Session: ${req.session ? 'exists' : 'null'}`);
     next();
 });
+
+// Serve static files from the Uploads directory
+server.use('/Uploads', express.static(path.join(__dirname, 'Uploads')));
 
 // Routes
 server.get('/', (req, res) => res.send('API Server is live!'));
@@ -100,17 +103,20 @@ server.use('/middleware', require('./Auth/checkAuth'), (req, res) => {
 server.use('/blockedUsers', require('./Auth/checkAuth'), async (req, res) => {
     try {
         const user = await User.findById(req.session.user._id).exec();
-        if (!user) return res.status(404).json({ error: 'User not found' });
-        res.status(200).json({ user: { _id: user._id, blockedUsers: user.blockedUsers || [] } });
+        if (!user) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+        res.status(200).json({
+            user: { _id: user._id, blockedUsers: user.blockedUsers || [] }
+        });
     } catch (error) {
         console.error('Error fetching blocked users:', error.message, error.stack);
         res.status(500).json({ error: 'Failed to fetch blocked users' });
     }
 });
 
-server.use('/Uploads', express.static(path.join(__dirname, 'Uploads')));
-
-const clientDist = path.join(__dirname, '../wedlyClient', 'dist');
+// Client-side routes
+const clientDist = path.join(__dirname, '../wedlyClient', 'dist'); // Define clientDist
 const clientRoutes = [
     '/', '/register', '/login', '/home', '/information', '/update-information',
     '/interest', '/message', '/conversation/:partnerId', '/MassageImage',
@@ -120,10 +126,10 @@ const clientRoutes = [
 
 server.get(clientRoutes, (req, res) => {
     const indexPath = path.join(clientDist, 'index.html');
-    console.log(`Serving: ${indexPath}`);
+    console.log(`Attempting to serve: ${indexPath}`);
     if (!fs.existsSync(indexPath)) {
         console.error(`Index.html not found at: ${indexPath}`);
-        return res.status(500).send('Build files missing');
+        return res.status(500).send('Server configuration error: Build files missing');
     }
     res.sendFile(indexPath, (err) => {
         if (err) {
@@ -133,18 +139,32 @@ server.get(clientRoutes, (req, res) => {
     });
 });
 
-// Start server
+// Start the server
 const PORT = process.env.PORT || 6969;
 async function startServer() {
     try {
         await mongooseConnection();
-        server.listen(PORT, () => console.log(`🚀 Server on port ${PORT}`));
+        server.listen(PORT, () => {
+            console.log(`🚀 API Server listening on port 🚀 http://localhost:${PORT}`);
+        });
     } catch (error) {
-        console.error(`Server failed on port ${PORT}`, error);
+        console.error(`Server failed to start on port ${PORT}`, error);
         process.exit(1);
     }
 }
+
 startServer();
+
+
+
+
+
+
+
+
+
+
+
 
 
 
