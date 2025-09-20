@@ -10,7 +10,7 @@ const User = require('./Schema/User');
 
 const server = express();
 
-// Log environment variables at startup for debugging purposes
+// Environment variables logging
 console.log('Environment variables:');
 console.log('PORT:', process.env.PORT);
 console.log('MONGOOSE_CONNECTION:', process.env.MONGOOSE_CONNECTION);
@@ -21,31 +21,40 @@ console.log('---------------------------------');
 
 // Validate critical environment variables
 if (!process.env.SESSION_SECRET) {
-    console.error('⚠ Error: SESSION_SECRET is not set. Please set a secure one in your environment variables.');
+    console.error('⚠ Error: SESSION_SECRET is not set. Please set a secure one.');
     process.exit(1);
 }
 if (!process.env.MONGOOSE_CONNECTION) {
-    console.error('⚠ Error: MONGOOSE_CONNECTION is not set. Please define it in your environment variables.');
+    console.error('⚠ Error: MONGOOSE_CONNECTION is not set. Please define it.');
     process.exit(1);
 }
 
-// CORS configuration - Use production URL if in production, otherwise use localhost
+// CORS configuration
 const allowedOrigins = process.env.NODE_ENV === 'production'
     ? [process.env.PRODUCTION_CLIENT_URL]
     : [process.env.LOCALHOST_CLIENT_API_URL];
 
 server.use(cors({
-    origin: allowedOrigins,
+    origin: function(origin, callback) {
+        if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+            callback(null, true);
+        } else {
+            callback(new Error('Not allowed by CORS'));
+        }
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
-// Middleware for parsing JSON and URL-encoded data
+// Handle preflight requests
+server.options('*', cors());
+
+// Middleware
 server.use(express.json());
 server.use(express.urlencoded({ extended: true }));
 
-// Session configuration using MongoStore
+// Session configuration
 server.use(session({
     secret: process.env.SESSION_SECRET,
     resave: false,
@@ -55,25 +64,22 @@ server.use(session({
         collectionName: 'sessions'
     }),
     cookie: {
-        secure: process.env.NODE_ENV === 'production', // REQUIRED for sameSite: 'none'
+        secure: process.env.NODE_ENV === 'production',
         httpOnly: true,
-        maxAge: 24 * 60 * 60 * 1000, // 1 day
-        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax' // REQUIRED for cross-site cookie
+        maxAge: 24 * 60 * 60 * 1000,
+        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
     }
 }));
 
 // Logging middleware
 server.use((req, res, next) => {
-    console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+    console.log(`[${new Date().toISOString()}] ${req.method} ${req.url} - Session: ${req.session ? 'exists' : 'null'}`);
     next();
 });
 
-// Serve a simple message for the root URL
-server.get('/', (req, res) => {
-    res.send('API Server is live!');
-});
+// Routes
+server.get('/', (req, res) => res.send('API Server is live!'));
 
-// API Routes
 server.use('/register', require('./components/register'));
 server.use('/login', require('./components/login'));
 server.use('/logout', require('./components/logout'));
@@ -94,22 +100,16 @@ server.use('/middleware', require('./Auth/checkAuth'), (req, res) => {
 server.use('/blockedUsers', require('./Auth/checkAuth'), async (req, res) => {
     try {
         const user = await User.findById(req.session.user._id).exec();
-        if (!user) {
-            return res.status(404).json({ error: 'User not found' });
-        }
-        res.status(200).json({
-            user: { _id: user._id, blockedUsers: user.blockedUsers || [] }
-        });
+        if (!user) return res.status(404).json({ error: 'User not found' });
+        res.status(200).json({ user: { _id: user._id, blockedUsers: user.blockedUsers || [] } });
     } catch (error) {
         console.error('Error fetching blocked users:', error.message, error.stack);
         res.status(500).json({ error: 'Failed to fetch blocked users' });
     }
 });
 
-// Serving static files from the Uploads directory
 server.use('/Uploads', express.static(path.join(__dirname, 'Uploads')));
 
-// Client-side routes
 const clientDist = path.join(__dirname, '../wedlyClient', 'dist');
 const clientRoutes = [
     '/', '/register', '/login', '/home', '/information', '/update-information',
@@ -120,10 +120,10 @@ const clientRoutes = [
 
 server.get(clientRoutes, (req, res) => {
     const indexPath = path.join(clientDist, 'index.html');
-    console.log(`Attempting to serve: ${indexPath}`);
+    console.log(`Serving: ${indexPath}`);
     if (!fs.existsSync(indexPath)) {
         console.error(`Index.html not found at: ${indexPath}`);
-        return res.status(500).send('Server configuration error: Build files missing');
+        return res.status(500).send('Build files missing');
     }
     res.sendFile(indexPath, (err) => {
         if (err) {
@@ -133,16 +133,14 @@ server.get(clientRoutes, (req, res) => {
     });
 });
 
-// Start the server
+// Start server
 const PORT = process.env.PORT || 6969;
 async function startServer() {
     try {
         await mongooseConnection();
-        server.listen(PORT, () => {
-            console.log(`🚀 API Server listening on port 🚀 http://localhost:${PORT}`);
-        });
+        server.listen(PORT, () => console.log(`🚀 Server on port ${PORT}`));
     } catch (error) {
-        console.error(`Server failed to start on port ${PORT}`, error);
+        console.error(`Server failed on port ${PORT}`, error);
         process.exit(1);
     }
 }
