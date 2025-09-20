@@ -35,20 +35,11 @@ const allowedOrigins = process.env.NODE_ENV === 'production'
     : [process.env.LOCALHOST_CLIENT_API_URL];
 
 server.use(cors({
-    origin: function(origin, callback) {
-        if (!origin || allowedOrigins.indexOf(origin) !== -1) {
-            callback(null, true);
-        } else {
-            callback(new Error('Not allowed by CORS'));
-        }
-    },
+    origin: allowedOrigins,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization']
 }));
-
-// Handle preflight requests
-server.options('*', cors());
 
 // Middleware for parsing JSON and URL-encoded data
 server.use(express.json());
