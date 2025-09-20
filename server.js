@@ -116,7 +116,7 @@ server.use('/blockedUsers', require('./Auth/checkAuth'), async (req, res) => {
 });
 
 // Client-side routes
-const clientDist = path.join(__dirname, '../wedlyClient', 'dist'); // Define clientDist
+const clientDist = path.join(__dirname, '..' , '../wedlyClient', 'dist'); // path.join(__dirname, '../wedlyClient', 'dist'); // Define clientDist
 const clientRoutes = [
     '/', '/register', '/login', '/home', '/information', '/update-information',
     '/interest', '/message', '/conversation/:partnerId', '/MassageImage',
