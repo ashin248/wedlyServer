@@ -4,8 +4,8 @@ const checkAuth = require('./checkAuth');
 
 router.get('/', checkAuth, (req, res) => {
   try {
-    res.status(200).json({ 
-      message: 'User is authenticated', 
+    res.status(200).json({
+      message: 'User is authenticated',
       user: {
         _id: req.session.user._id,
         name: req.session.user.name,

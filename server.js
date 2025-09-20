@@ -1,4 +1,3 @@
-
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
@@ -30,7 +29,7 @@ if (!process.env.MONGOOSE_CONNECTION) {
     process.exit(1);
 }
 
-// CORS configuration
+// CORS configuration - Use production URL if in production, otherwise use localhost
 const allowedOrigins = process.env.NODE_ENV === 'production'
     ? [process.env.PRODUCTION_CLIENT_URL]
     : [process.env.LOCALHOST_CLIENT_API_URL];
@@ -46,7 +45,7 @@ server.use(cors({
 server.use(express.json());
 server.use(express.urlencoded({ extended: true }));
 
-// Session configuration using MongoStore with 'sameSite: none'
+// Session configuration using MongoStore
 server.use(session({
     secret: process.env.SESSION_SECRET,
     resave: false,
@@ -56,10 +55,10 @@ server.use(session({
         collectionName: 'sessions'
     }),
     cookie: {
-        secure: true, // MUST be true for sameSite: 'none'
+        secure: process.env.NODE_ENV === 'production', // REQUIRED for sameSite: 'none'
         httpOnly: true,
         maxAge: 24 * 60 * 60 * 1000, // 1 day
-        sameSite: 'none' // REQUIRED for cross-site cookie
+        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax' // REQUIRED for cross-site cookie
     }
 }));
 
