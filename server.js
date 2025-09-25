@@ -10,7 +10,7 @@ const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Trust proxy for Vercel (serverless environment)
+// Trust proxy for Render (similar to Vercel, as it's behind proxies)
 app.set('trust proxy', 1);
 
 // Session middleware
@@ -27,9 +27,13 @@ app.use(session({
   }
 }));
 
-// CORS configuration
+// CORS configuration (update allowed origins if needed for local testing)
 app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', 'https://wedly-client.vercel.app');
+  const allowedOrigins = ['https://wedly-client.vercel.app', 'http://localhost:5173']; // Add local for dev
+  const origin = req.headers.origin;
+  if (allowedOrigins.includes(origin)) {
+    res.header('Access-Control-Allow-Origin', origin);
+  }
   res.header('Access-Control-Allow-Credentials', 'true');
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
@@ -39,12 +43,12 @@ app.use((req, res, next) => {
   next();
 });
 
-// Routes
+// Routes (corrected paths; standardize case if needed)
 const interestRouter = require('./Pages/interest');
 const blockRouter = require('./Pages/block');
 const settingsRouter = require('./Pages/Settings');
 const notificationsRouter = require('./Pages/notifications');
-const helpRouter = require('./Pages/Help');
+const helpRouter = require('./Pages/Help'); // Change to './Pages/help' if file is lowercase 'help.js'
 const registerRouter = require('./components/register');
 const logoutRouter = require('./components/logout');
 const homeRouter = require('./components/home');
@@ -52,7 +56,7 @@ const informationRouter = require('./components/information');
 const loginRouter = require('./components/login');
 const middlewareRouter = require('./Auth/middleware');
 const userRouter = require('./Auth/user');
-const adminRouter = require('./admin');
+const adminRouter = require('./admin/admin'); // Corrected: Points to admin.js in admin folder
 
 app.use('/api/interest', interestRouter);
 app.use('/api/block', blockRouter);
@@ -76,8 +80,6 @@ const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
-
-
 
 
 
