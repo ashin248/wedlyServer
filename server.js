@@ -1,16 +1,34 @@
+require('dotenv').config();
+
 const express = require('express');
 const session = require('express-session');
 const MongoStore = require('connect-mongo');
 const mongooseConnection = require('./DB/mongooseConnection');
 const path = require('path');
+const fs = require('fs');
 
 const app = express();
+
+// Log environment variables for debugging
+console.log('Environment variables:');
+console.log('PORT:', process.env.PORT);
+console.log('MONGOOSE_CONNECTION:', process.env.MONGOOSE_CONNECTION);
+console.log('SESSION_SECRET:', process.env.SESSION_SECRET);
+console.log('PRODUCTION_CLIENT_URL:', process.env.PRODUCTION_CLIENT_URL);
+console.log('NODE_ENV:', process.env.NODE_ENV);
+console.log('---------------------------------');
+
+// Validate critical environment variables
+if (!process.env.SESSION_SECRET || !process.env.MONGOOSE_CONNECTION) {
+  console.error('⚠ Error: SESSION_SECRET or MONGOOSE_CONNECTION is not set. Please check .env file.');
+  process.exit(1);
+}
 
 // Middleware
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Trust proxy for Render (similar to Vercel, as it's behind proxies)
+// Trust proxy for Render (serverless environment)
 app.set('trust proxy', 1);
 
 // Session middleware
@@ -18,7 +36,7 @@ app.use(session({
   secret: process.env.SESSION_SECRET,
   resave: false,
   saveUninitialized: false,
-  store: MongoStore.create({ mongoUrl: process.env.MONGOOSE_CONNECTION }),
+  store: MongoStore.create({ mongoUrl: process.env.MONGOOSE_CONNECTION, collectionName: 'sessions' }),
   cookie: {
     secure: process.env.NODE_ENV === 'production',
     httpOnly: true,
@@ -27,9 +45,11 @@ app.use(session({
   }
 }));
 
-// CORS configuration (update allowed origins if needed for local testing)
+// CORS configuration
+const allowedOrigins = process.env.NODE_ENV === 'production'
+  ? [process.env.PRODUCTION_CLIENT_URL]
+  : ['http://localhost:5173'];
 app.use((req, res, next) => {
-  const allowedOrigins = ['https://wedly-client.vercel.app', 'http://localhost:5173']; // Add local for dev
   const origin = req.headers.origin;
   if (allowedOrigins.includes(origin)) {
     res.header('Access-Control-Allow-Origin', origin);
@@ -43,12 +63,18 @@ app.use((req, res, next) => {
   next();
 });
 
-// Routes (corrected paths; standardize case if needed)
+// Logging middleware
+app.use((req, res, next) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+  next();
+});
+
+// API Routes (with /api prefix)
 const interestRouter = require('./Pages/interest');
 const blockRouter = require('./Pages/block');
 const settingsRouter = require('./Pages/Settings');
 const notificationsRouter = require('./Pages/notifications');
-const helpRouter = require('./Pages/Help'); // Change to './Pages/help' if file is lowercase 'help.js'
+const helpRouter = require('./Pages/Help');
 const registerRouter = require('./components/register');
 const logoutRouter = require('./components/logout');
 const homeRouter = require('./components/home');
@@ -56,14 +82,14 @@ const informationRouter = require('./components/information');
 const loginRouter = require('./components/login');
 const middlewareRouter = require('./Auth/middleware');
 const userRouter = require('./Auth/user');
-const adminRouter = require('./admin/admin'); // Corrected: Points to admin.js in admin folder
+const adminRouter = require('./admin/admin');
 
 app.use('/api/interest', interestRouter);
 app.use('/api/block', blockRouter);
 app.use('/api/settings', settingsRouter);
 app.use('/api/notifications', notificationsRouter);
 app.use('/api/help', helpRouter);
-app.use('/api/register', registerRouter);
+app.use('/api/register', registerRouter); // Ensure this matches frontend call
 app.use('/api/logout', logoutRouter);
 app.use('/api/home', homeRouter);
 app.use('/api/information', informationRouter);
@@ -72,13 +98,43 @@ app.use('/api/middleware', middlewareRouter);
 app.use('/api/user', userRouter);
 app.use('/api/admin', adminRouter);
 
+// Additional routes from the second version (without /api prefix for client-side)
+app.get('/', (req, res) => {
+  res.send('API Server is live!');
+});
+
+app.use('/Uploads', express.static(path.join(__dirname, 'Uploads')));
+
+const clientDist = path.join(__dirname, '../wedlyClient', 'dist');
+const clientRoutes = [
+  '/', '/register', '/login', '/home', '/information', '/update-information',
+  '/interest', '/message', '/conversation/:partnerId', '/MassageImage',
+  '/MassageVoice', '/notifications', '/admin/login', '/admin/home', '/settings',
+  '/help', '/admin/help', '/admin/reports', '/admin/blocks', '/admin/history'
+];
+
+app.get(clientRoutes, (req, res) => {
+  const indexPath = path.join(clientDist, 'index.html');
+  console.log(`Attempting to serve: ${indexPath}`);
+  if (!fs.existsSync(indexPath)) {
+    console.error(`Index.html not found at: ${indexPath}`);
+    return res.status(500).send('Server configuration error: Build files missing');
+  }
+  res.sendFile(indexPath, (err) => {
+    if (err) {
+      console.error(`Error serving index.html: ${err.message}`);
+      res.status(500).send('Error serving the application');
+    }
+  });
+});
+
 // MongoDB connection
 mongooseConnection().catch(err => console.error('Failed to connect to MongoDB:', err));
 
 // Start server
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`🚀 API Server listening on port ${PORT}`);
 });
 
 
