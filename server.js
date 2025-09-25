@@ -1,6 +1,7 @@
 require('dotenv').config();
 
 const express = require('express');
+const cors = require('cors');
 const session = require('express-session');
 const MongoStore = require('connect-mongo');
 const mongooseConnection = require('./DB/mongooseConnection');
@@ -19,16 +20,31 @@ console.log('NODE_ENV:', process.env.NODE_ENV);
 console.log('---------------------------------');
 
 // Validate critical environment variables
-if (!process.env.SESSION_SECRET || !process.env.MONGOOSE_CONNECTION) {
-  console.error('⚠ Error: SESSION_SECRET or MONGOOSE_CONNECTION is not set. Please check .env file.');
+if (!process.env.SESSION_SECRET) {
+  console.error('⚠ Error: SESSION_SECRET is not set. Please set a secure one in your environment variables.');
   process.exit(1);
 }
+if (!process.env.MONGOOSE_CONNECTION) {
+  console.error('⚠ Error: MONGOOSE_CONNECTION is not set. Please define it in your environment variables.');
+  process.exit(1);
+}
+
+// CORS configuration
+const allowedOrigins = process.env.NODE_ENV === 'production'
+  ? [process.env.PRODUCTION_CLIENT_URL]
+  : [process.env.LOCALHOST_CLIENT_API_URL];
+app.use(cors({
+  origin: allowedOrigins,
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
 
 // Middleware
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Trust proxy for Render (serverless environment)
+// Trust proxy for Render
 app.set('trust proxy', 1);
 
 // Session middleware
@@ -40,28 +56,10 @@ app.use(session({
   cookie: {
     secure: process.env.NODE_ENV === 'production',
     httpOnly: true,
-    sameSite: 'lax',
-    maxAge: 1000 * 60 * 60 * 24 // 1 day
+    maxAge: 24 * 60 * 60 * 1000, // 1 day
+    sameSite: 'lax'
   }
 }));
-
-// CORS configuration
-const allowedOrigins = process.env.NODE_ENV === 'production'
-  ? [process.env.PRODUCTION_CLIENT_URL]
-  : ['http://localhost:5173'];
-app.use((req, res, next) => {
-  const origin = req.headers.origin;
-  if (allowedOrigins.includes(origin)) {
-    res.header('Access-Control-Allow-Origin', origin);
-  }
-  res.header('Access-Control-Allow-Credentials', 'true');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
-  if (req.method === 'OPTIONS') {
-    return res.sendStatus(200);
-  }
-  next();
-});
 
 // Logging middleware
 app.use((req, res, next) => {
@@ -69,7 +67,12 @@ app.use((req, res, next) => {
   next();
 });
 
-// API Routes (with /api prefix)
+// Serve a simple message for the root URL
+app.get('/', (req, res) => {
+  res.send('API Server is live!');
+});
+
+// API Routes (no /api prefix to match working version)
 const interestRouter = require('./Pages/interest');
 const blockRouter = require('./Pages/block');
 const settingsRouter = require('./Pages/Settings');
@@ -84,27 +87,42 @@ const middlewareRouter = require('./Auth/middleware');
 const userRouter = require('./Auth/user');
 const adminRouter = require('./admin/admin');
 
-app.use('/api/interest', interestRouter);
-app.use('/api/block', blockRouter);
-app.use('/api/settings', settingsRouter);
-app.use('/api/notifications', notificationsRouter);
-app.use('/api/help', helpRouter);
-app.use('/api/register', registerRouter); // Ensure this matches frontend call
-app.use('/api/logout', logoutRouter);
-app.use('/api/home', homeRouter);
-app.use('/api/information', informationRouter);
-app.use('/api/login', loginRouter);
-app.use('/api/middleware', middlewareRouter);
-app.use('/api/user', userRouter);
-app.use('/api/admin', adminRouter);
-
-// Additional routes from the second version (without /api prefix for client-side)
-app.get('/', (req, res) => {
-  res.send('API Server is live!');
+app.use('/register', registerRouter);
+app.use('/login', loginRouter);
+app.use('/logout', logoutRouter);
+app.use('/information', informationRouter);
+app.use('/update-information', informationRouter); // Assuming same router handles both
+app.use('/user', userRouter);
+app.use('/home', homeRouter);
+app.use('/interest', interestRouter);
+app.use('/message', require('./Pages/Message')); // Assuming case matches file
+app.use('/block', blockRouter);
+app.use('/notifications', notificationsRouter);
+app.use('/settings', settingsRouter);
+app.use('/help', helpRouter);
+app.use('/admin', adminRouter);
+app.use('/middleware', middlewareRouter, (req, res) => {
+  res.status(200).json({ message: 'Authenticated', user: req.session.user });
+});
+app.use('/blockedUsers', middlewareRouter, async (req, res) => {
+  try {
+    const user = await User.findById(req.session.user._id).exec();
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    res.status(200).json({
+      user: { _id: user._id, blockedUsers: user.blockedUsers || [] }
+    });
+  } catch (error) {
+    console.error('Error fetching blocked users:', error.message, error.stack);
+    res.status(500).json({ error: 'Failed to fetch blocked users' });
+  }
 });
 
+// Serving static files
 app.use('/Uploads', express.static(path.join(__dirname, 'Uploads')));
 
+// Client-side routes
 const clientDist = path.join(__dirname, '../wedlyClient', 'dist');
 const clientRoutes = [
   '/', '/register', '/login', '/home', '/information', '/update-information',
@@ -128,16 +146,21 @@ app.get(clientRoutes, (req, res) => {
   });
 });
 
-// MongoDB connection
-mongooseConnection().catch(err => console.error('Failed to connect to MongoDB:', err));
+// Start the server
+const PORT = process.env.PORT || 6969;
+async function startServer() {
+  try {
+    await mongooseConnection();
+    app.listen(PORT, () => {
+      console.log(`🚀 API Server listening on port ${PORT} at ${new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' })}`);
+    });
+  } catch (error) {
+    console.error(`Server failed to start on port ${PORT}`, error);
+    process.exit(1);
+  }
+}
 
-// Start server
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`🚀 API Server listening on port ${PORT}`);
-});
-
-
+startServer();
 
 
 
